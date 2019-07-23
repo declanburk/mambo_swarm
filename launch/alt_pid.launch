@@ -1,0 +1,6 @@
+<launch>
+  <node name="alt_pid" pkg="mambo_fly" type="altitude_pid.py" output="screen" clear_params="True">
+  	<param name="name" value="Penne" type="str"/>
+  	<param name="alt_ref" value="1.5" type="double"/>
+  </node>
+</launch>
