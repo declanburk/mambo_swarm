@@ -1,6 +1,31 @@
 <launch>
-  <node name="mambo_host" pkg="mambo_fly" type="host_service.py" output="screen" clear_params="True">
+  <node name="mambo_request" pkg="mambo_fly" type="central_client.py" output="screen" clear_params="True">
+        <param name="request" value="True" type="bool"/>
+        <param name="name" value="Penne" type="str"/>
+        <param name="name2" value="Rigatoni" type="str"/>
+        <param name="name3" value="Linguine" type="str"/>
+        <param name="name4" value="Gnocchi" type="str"/>
+  </node>
+  
+  <node name="mambo_host1" pkg="mambo_fly" type="host_service.py" output="screen" clear_params="True">
     <param name="mac" value="d0:3a:b7:81:e6:3b" type="str"/>
     <param name="name" value="Penne" type="str"/>
   </node>
+
+  <node name="mambo_host2" pkg="mambo_fly" type="host_service.py" output="screen" clear_params="True">
+    <param name="mac" value="d0:3a:b8:2a:e6:3b" type="str"/>
+    <param name="name" value="Rigatoni" type="str"/>
+  </node>
+
+  <node name="mambo_host3" pkg="mambo_fly" type="host_service.py" output="screen" clear_params="True">
+    <param name="mac" value="d0:3a:b0:81:e6:3b" type="str"/>
+    <param name="name" value="Linguine" type="str"/>
+  </node>
+
+  <node name="mambo_host4" pkg="mambo_fly" type="host_service.py" output="screen" clear_params="True">
+    <param name="mac" value="d0:3a:b8:9e:e6:3b" type="str"/>
+    <param name="name" value="Gnocchi" type="str"/>
+  </node>
+
+
 </launch>
