@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 import sys
 import rospy
+import numpy as np
 import time
 from pathos.pools import ProcessPool
 import message_filters
@@ -9,6 +10,7 @@ from structs import two_agents
 
 from mambo_fly.srv import *
 from std_msgs.msg import String
+from std_msgs.msg import Bool
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TwistStamped
 from mavros_msgs.msg import AttitudeTarget
@@ -21,15 +23,13 @@ class GroundStation:
         self.took_off = False
         self.init_control = False
 
-        self.m = 30
+        self.m = 40
         self.c12 = 1
         self.c13 = 1
         self.c14 = 1
         self.c15 = 1
         self.c16 = 0.0
         self.c17 = 0.0
-        # self.c16 = 0.015
-        # self.c17 = 0.015
         self.lam6 = 0.015
         self.lam7 = 0.015
         self.ffactor = 1
@@ -40,12 +40,30 @@ class GroundStation:
         self.agent_names = [rospy.get_param(s) for s in rospy.get_param_names() if "mambo_request/name" in s]
         rospy.loginfo(self.agent_names)
 
+        self.pub_disconnect = {}
+        self.pub_fly_command = {}
+        self.pub_init = {}
+
         for s in self.agent_names:
+            neighbours = ()
+            bearing = []
+            for ix, x in enumerate(two_agents['edges']):
+                if (s == x[0]):
+                    y = np.divide(np.array(two_agents['bearing'][ix]), np.linalg.norm(np.array(two_agents['bearing'][ix])))
+                    neighbours += (x[1],)
+                    bearing.append((y[0], y[1], y[2]))
+                elif (s == x[1]):
+                    y = np.multiply(np.divide(np.array(two_agents['bearing'][ix]), np.linalg.norm(np.array(two_agents['bearing'][ix]))), -1)
+                    neighbours += (x[0],)
+                    bearing.append((y[0], y[1], y[2]))
+
             ## Dictionary of each agent's state information. The two zeros are the integration of velocity errors.
-            self.agents[s] = [PoseStamped(), TwistStamped(), TwistStamped(), AttitudeTarget(), (0.0, 0.0, 0.0), 0.0, 0.0]
+            self.agents[s] = {'pose': (0.0, 0.0, 0.0), 'twist': (0.0, 0.0, 0.0), 'accel': (0.0, 0.0, 0.0), 'u': AttitudeTarget(), 'ref': (0.0, 0.0, 0.0), 'chi6': 0.0, 'chi7': 0.0, 'neighbours': neighbours, 'bearing': bearing}
+            # self.agents[s] = [PoseStamped(), TwistStamped(), TwistStamped(), AttitudeTarget(), (0.0, 0.0, 0.0), 0.0, neighbours]
             ## Publishers and subscribers for each agent.
-            self.pub_disconnect = rospy.Publisher('/mambo_srv/' + s + '/disconnect', String, queue_size=10)
-            self.pub_fly_command = rospy.Publisher('/mambo_srv/' + s + '/fly_command', AttitudeTarget, queue_size=10)
+            self.pub_disconnect[s] = rospy.Publisher('/mambo_srv/' + s + '/disconnect', String, queue_size=10)
+            self.pub_fly_command[s] = rospy.Publisher('/mambo_srv/' + s + '/fly_command', AttitudeTarget, queue_size=10)
+            self.pub_init[s] = rospy.Publisher('/mambo_srv/' + s + '/init_control', Bool, queue_size=10)
             self.sub_pose = rospy.Subscriber('/vrpn_client_node/' + s + '/pose', PoseStamped, self.callback_pose, s)
             self.sub_twist = rospy.Subscriber('/vrpn_client_node/' + s + '/twist', TwistStamped, self.callback_twist, s)
             self.sub_accel = rospy.Subscriber('/vrpn_client_node/' + s + '/accel', TwistStamped, self.callback_accel, s)
@@ -61,7 +79,7 @@ class GroundStation:
             time.sleep(4)
             for s in self.agent_names:
                 msg_str = 'Disconnect'
-                self.pub_disconnect.publish(msg_str)
+                self.pub_disconnect[s].publish(msg_str)
                 rospy.loginfo('Disconnection ' + s)
             self.ble_connect()
             count = count + 1
@@ -103,79 +121,70 @@ class GroundStation:
     def ble_disconnect(self):
         for s in self.agent_names:
             msg_str = 'Disconnect'
-            self.pub_disconnect.publish(msg_str)
+            self.pub_disconnect[s].publish(msg_str)
             rospy.loginfo('Disconnection ' + s)
 
     def off_board(self, num):
         self.init_control = True
+        for s in self.agent_names:
+            self.pub_init[s].publish(self.init_control)
 
-        rospy.loginfo('Hover')
-        self.agents['Penne'][4] = (0.0, 0.0, 0.0)
-        self.agents['Penne'][3].body_rate.x = self.agents['Penne'][4][0]
-        self.agents['Penne'][3].body_rate.y = self.agents['Penne'][4][1]
+        rospy.loginfo('Bearing controller')
         for x in range(num):
-            self.pub_fly_command.publish(self.agents['Penne'][3])
+            for s in self.agent_names:
+                self.pub_fly_command[s].publish(self.agents[s]['u'])    
             self.rate.sleep()
-
-
-        rospy.loginfo('Forward')
-        self.agents['Penne'][4] = (0.0, 0.5, 0.0)
-        self.agents['Penne'][3].body_rate.x = self.agents['Penne'][4][0]
-        self.agents['Penne'][3].body_rate.y = self.agents['Penne'][4][1]
-        for x in range(num):
-            self.pub_fly_command.publish(self.agents['Penne'][3])
-            self.rate.sleep()
-
-        rospy.loginfo('Right')
-        self.agents['Penne'][4] = (0.5, 0.0, 0.0)
-        self.agents['Penne'][3].body_rate.x = self.agents['Penne'][4][0]
-        self.agents['Penne'][3].body_rate.y = self.agents['Penne'][4][1]
-        for x in range(num):
-            self.pub_fly_command.publish(self.agents['Penne'][3])
-            self.rate.sleep()
-        
-        rospy.loginfo('Back')
-        self.agents['Penne'][4] = (0.0, -0.5, 0.0)
-        self.agents['Penne'][3].body_rate.x = self.agents['Penne'][4][0]
-        self.agents['Penne'][3].body_rate.y = self.agents['Penne'][4][1]
-        for x in range(num):
-            self.pub_fly_command.publish(self.agents['Penne'][3]) 
-            self.rate.sleep()
-
-        rospy.loginfo('Left')
-        self.agents['Penne'][4] = (-0.5, 0.0, 0.0)
-        self.agents['Penne'][3].body_rate.x = self.agents['Penne'][4][0]
-        self.agents['Penne'][3].body_rate.y = self.agents['Penne'][4][1]
-        for x in range(num):
-            self.pub_fly_command.publish(self.agents['Penne'][3])
-            self.rate.sleep()
-
-        self.agents['Penne'][4] = (0.0, 0.0, 0.0)
-        self.agents['Penne'][3].body_rate.x = self.agents['Penne'][4][0]
-        self.agents['Penne'][3].body_rate.y = self.agents['Penne'][4][1]
-        self.pub_fly_command.publish(self.agents['Penne'][3])
-        self.rate.sleep()
 
         self.init_control = False
-      
+        for s in self.agent_names:
+            self.pub_init[s].publish(self.init_control)
 
     ## The control input is calculated as part of the Vicon position callback.
     def callback_pose(self, data, name):
-        self.agents[name][0] = data
+        self.agents[name]['pose'] = (data.pose.position.x, data.pose.position.y, data.pose.position.z)
+        ## Calculate the reference velocity from bearing-only control: https://arxiv.org/abs/1408.6552
+        v = np.array([0.0, 0.0, 0.0])
+        for ix, x in enumerate(self.agents[name]['neighbours']):
+            edge = np.array(np.subtract(self.agents[x]['pose'], self.agents[name]['pose']))
+            bearing = np.divide(edge, np.linalg.norm(edge))
+            bearing_d = np.array(self.agents[name]['bearing'][ix])
+            ortho_op = np.subtract(np.identity(3), np.outer(bearing, bearing))
+            v += np.multiply(np.matmul(ortho_op, bearing_d), -1) 
+            ## Calculate the reference velocity from complementary bearing-only control: Declan Burke, 2019.
+            bearing_cross = np.cross(bearing_d, bearing)
+            scaled_bc = np.multiply(np.divide(bearing_cross, np.linalg.norm(bearing_cross)), np.sign(np.dot(bearing, bearing_d)))
+            skew_sym = np.array([[0,np.multiply(bearing_d[2],-1), bearing_d[1]], \
+                                [bearing_d[2],0,np.multiply(bearing_d[0],-1)], \
+                                [np.multiply(bearing_d[1],-1), bearing_d[0], 0]])
+            tanh_rate = 5
+            sigma = np.square(np.tanh(np.multiply(np.linalg.norm(bearing_cross), tanh_rate)))
+            v += np.multiply(np.multiply(np.matmul(np.matmul(ortho_op,skew_sym), scaled_bc), -1), sigma)
+            v = np.multiply(v, 0.25*(1/np.sqrt(2)))
+            # v = np.multiply(v, 0.25)
+            # print(v)
+        self.agents[name]['ref'] = (v[0], v[1], v[2])
+        self.agents[name]['u'].body_rate.x = self.agents[name]['ref'][0]
+        self.agents[name]['u'].body_rate.y = self.agents[name]['ref'][1]
+
+        # print('Agent %s has reference %s' % (name, self.agents[name]['ref']))        
         ## Calculate the velocity command from integral backstepping: https://doi.org/10.3929/ethz-a-010039365
         agent = self.agents[name]
         if (self.init_control):
-            e10 = agent[4][0] - agent[1].twist.linear.x
-            e11 = agent[4][1] - agent[1].twist.linear.y
-            ed10 = -agent[2].twist.linear.x
-            ed11 = -agent[2].twist.linear.y
-            agent[5] = (self.ffactor * agent[5]) + e10    ## IMPLEMENT INTEGRATION
-            agent[6] = (self.ffactor * agent[6]) + e11    ## IMPLEMENT INTEGRATION
-            self.agents[name][3].thrust = self.kp * (agent[4][2] - agent[1].twist.linear.z)
+            e10 = agent['ref'][0] - agent['twist'][0]
+            e11 = agent['ref'][1] - agent['twist'][1]
+            ed10 = -agent['accel'][0]
+            ed11 = -agent['accel'][1]
+            agent['chi6'] = (self.ffactor * agent['chi6']) + e10    ## IMPLEMENT INTEGRATION
+            agent['chi7'] = (self.ffactor * agent['chi7']) + e11    ## IMPLEMENT INTEGRATION
+            self.agents[name]['u'].thrust = self.kp * (agent['ref'][2] - agent['twist'][2])
 
             U1 = 1.0
-            self.agents[name][3].orientation.x = float((self.m / U1) * (((self.c12 + self.c13) * e10) + (self.lam6 * agent[5]) + (self.c16 * ed10)))
-            self.agents[name][3].orientation.y = float((self.m / U1) * (((self.c14 + self.c15) * e11) + (self.lam7 * agent[6]) + (self.c17 * ed11)))
+            self.agents[name]['u'].orientation.x = float((self.m / U1) * (((self.c12 + self.c13) * e10) + (self.lam6 * agent['chi6']) + (self.c16 * ed10)))
+            self.agents[name]['u'].orientation.y = float((self.m / U1) * (((self.c14 + self.c15) * e11) + (self.lam7 * agent['chi7']) + (self.c17 * ed11)))
+            # time_now = rospy.Time()
+            # self.agents[name]['u'].header.stamp.secs = time_now.secs
+            # self.agents[name]['u'].header.stamp.nsecs = time_now.nsecs
+            # print(self.agents[name]['u'])
 
     ## Clients and callbacks required by ROS.
     def client_connect(self, name, req=True):
@@ -212,10 +221,10 @@ class GroundStation:
             return False
 
     def callback_twist(self, data, name):
-        self.agents[name][1] = data
+        self.agents[name]['twist'] = (data.twist.linear.x, data.twist.linear.y, data.twist.linear.z)
 
     def callback_accel(self, data, name):
-        self.agents[name][2] = data
+        self.agents[name]['accel'] = (data.twist.linear.x, data.twist.linear.y, data.twist.linear.z)
 
 if __name__ == '__main__':
     rospy.init_node('mambo_groundstation', anonymous=True)
@@ -230,7 +239,7 @@ if __name__ == '__main__':
 
     time.sleep(2)
 
-    mambo.off_board(12)
+    mambo.off_board(120)
 
     time.sleep(1)
 

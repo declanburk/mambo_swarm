@@ -1,14 +1,6 @@
 <launch>
-  <node name="mambo_request" pkg="mambo_fly" type="central_client.py" output="screen" clear_params="True">
-  	<param name="request" value="True" type="bool"/>
-  	<param name="name" value="Penne" type="str"/>
-  </node>
-  
   <node name="mambo_host" pkg="mambo_fly" type="host_service.py" output="screen" clear_params="True">
     <param name="mac" value="d0:3a:b7:81:e6:3b" type="str"/>
-    <param name="name" value="Penne" type="str"/>
-  </node>
-  <node name="data_host1" pkg="mambo_fly" type="data_logger.py" output="screen" clear_params="True">
     <param name="name" value="Penne" type="str"/>
   </node>
 </launch>
